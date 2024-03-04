@@ -42,6 +42,7 @@ extern int show_entropy;
  * OK as long as head field of queue_t structure is in first position in
  * solution code
  */
+#include "list_sort.h"
 #include "queue.h"
 
 #include "console.h"
@@ -579,7 +580,19 @@ static bool do_size(int argc, char *argv[])
     return ok && !error_check();
 }
 
-bool do_sort(int argc, char *argv[])
+static int cmp(void *priv, struct list_head *a, struct list_head *b)
+{
+    element_t *l = list_entry(a, element_t, list);
+    element_t *r = list_entry(b, element_t, list);
+    return strcmp(l->value, r->value);
+}
+
+static int cmp_descend(void *priv, struct list_head *a, struct list_head *b)
+{
+    return -1 * cmp(priv, a, b);
+}
+
+bool _do_sort(int argc, char *argv[], int mode)
 {
     if (argc != 1) {
         report(1, "%s takes no arguments", argv[0]);
@@ -598,8 +611,13 @@ bool do_sort(int argc, char *argv[])
     error_check();
 
     set_noallocate_mode(true);
-    if (current && exception_setup(true))
-        q_sort(current->q, descend);
+    if (current && exception_setup(true)) {
+        if (mode == 0)
+            q_sort(current->q, descend);
+        else if (mode == 1)
+            list_sort(NULL, current->q, descend ? cmp_descend : cmp);
+    }
+
     exception_cancel();
     set_noallocate_mode(false);
 
@@ -627,6 +645,16 @@ bool do_sort(int argc, char *argv[])
 
     q_show(3);
     return ok && !error_check();
+}
+
+bool do_sort(int argc, char *argv[])
+{
+    return _do_sort(argc, argv, 0);
+}
+
+bool do_linux_sort(int argc, char *argv[])
+{
+    return _do_sort(argc, argv, 1);
 }
 
 static bool do_dm(int argc, char *argv[])
@@ -1036,6 +1064,7 @@ static void console_init()
         "[str]");
     ADD_COMMAND(reverse, "Reverse queue", "");
     ADD_COMMAND(sort, "Sort queue in ascending/descening order", "");
+    ADD_COMMAND(linux_sort, "Sort queue with linux lib/list_sort.c", "");
     ADD_COMMAND(size, "Compute queue size n times (default: n == 1)", "[n]");
     ADD_COMMAND(show, "Show queue contents", "");
     ADD_COMMAND(dm, "Delete middle node in queue", "");
