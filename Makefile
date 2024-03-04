@@ -83,4 +83,19 @@ clean:
 distclean: clean
 	rm -f .cmd_history
 
+sort_perf: 
+	./qtest -v 2 -f traces/trace-perf-linux-sort.cmd -l linux_sort.dat
+	cat linux_sort.dat | grep -v 'Delta time =' | sed 's/# //g' > linux_sort.dat01
+	cat linux_sort.dat | grep 'Delta time =' | sed 's/Delta time = //g' > linux_sort.dat02
+	pr -m -T linux_sort.dat01 linux_sort.dat02 > linux_sort.dat
+	rm linux_sort.dat01 linux_sort.dat02
+	./qtest -v 2 -f traces/trace-perf-merge-sort.cmd -l merge_sort.dat
+	cat merge_sort.dat | grep -v 'Delta time =' | sed 's/# //g' > merge_sort.dat01
+	cat merge_sort.dat | grep 'Delta time =' | sed 's/Delta time = //g' > merge_sort.dat02
+	pr -m -T merge_sort.dat01 merge_sort.dat02 > merge_sort.dat
+	rm merge_sort.dat01 merge_sort.dat02
+	gnuplot scripts/sort_perf.gp
+	rm linux_sort.dat merge_sort.dat
+	xdg-open sort_perf.png
+
 -include $(deps)
