@@ -87,6 +87,12 @@ typedef enum {
 /* Forward declarations */
 static bool q_show(int vlevel);
 
+/**
+ * q_shuffle() - Fisher-Yates shuffle queue, no effect if header is NULL
+ * @head: header of queue
+ */
+void q_shuffle(struct list_head *head);
+
 static bool do_free(int argc, char *argv[])
 {
     if (argc != 1) {
@@ -1040,6 +1046,12 @@ static bool do_next(int argc, char *argv[])
     return q_show(0);
 }
 
+bool do_shuffle(int argc, char *argv[])
+{
+    q_shuffle(current->q);
+    return q_show(0);
+}
+
 static void console_init()
 {
     ADD_COMMAND(new, "Create new queue", "");
@@ -1081,6 +1093,7 @@ static void console_init()
                 "");
     ADD_COMMAND(reverseK, "Reverse the nodes of the queue 'K' at a time",
                 "[K]");
+    ADD_COMMAND(shuffle, "Fisher-Yates shuffle", "");
     add_param("length", &string_length, "Maximum length of displayed string",
               NULL);
     add_param("malloc", &fail_probability, "Malloc failure probability percent",

@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "queue.h"
+/* #include "time.h" */
 
 /* Notice: sometimes, Cppcheck would find the potential NULL pointer bugs,
  * but some of them cannot occur. You can suppress them by adding the
@@ -22,6 +23,36 @@ struct list_head *q_new()
     INIT_LIST_HEAD(h);
 
     return h;
+}
+
+/* Fisher-Yates shuffle queue, no effect if header is NULL */
+void q_shuffle(struct list_head *head)
+{
+    if (!head || list_empty(head) || list_is_singular(head))
+        return;
+
+    /* srand(time(0)); */
+
+    int len = q_size(head);
+    struct list_head *i_th = head->prev;
+
+    for (int i = len; i > 0; i--) {
+        struct list_head *r_th = head;
+        int r = rand() % i + 1;
+        if (r != i) {
+            // find r_th
+            for (int j = 0; j < r; j++)
+                r_th = r_th->next;
+
+            // swap r_th and i_th element
+            element_t *e_rth = list_entry(r_th, element_t, list);
+            element_t *e_ith = list_entry(i_th, element_t, list);
+            char *temp = e_rth->value;
+            e_rth->value = e_ith->value;
+            e_ith->value = temp;
+        }
+        i_th = i_th->prev;
+    }
 }
 
 /* Free all storage used by queue */
