@@ -105,6 +105,7 @@
 
 #include <ctype.h>
 #include <errno.h>
+#include <netinet/in.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -116,6 +117,7 @@
 #include <unistd.h>
 
 #include "linenoise.h"
+#include "web.h"
 
 #define LINENOISE_DEFAULT_HISTORY_MAX_LEN 100
 #define LINENOISE_MAX_LINE 4096
@@ -884,6 +886,8 @@ static void line_edit_next_word(struct line_state *l)
     refresh_line(l);
 }
 
+extern int web_fd;
+extern int web_connfd;
 /* This function is the core of the line editing capability of linenoise.
  * It expects 'fd' to be already in "raw mode" so that every key pressed
  * will be returned ASAP to read().
@@ -928,190 +932,228 @@ static int line_edit(int stdin_fd,
     if (write(l.ofd, prompt, l.plen) == -1)
         return -1;
     while (1) {
-        signed char c;
-        int nread;
-        char seq[5];
+        fd_set set;
+        FD_ZERO(&set);
+        if (web_fd)
+            FD_SET(web_fd, &set);
+        FD_SET(l.ifd, &set);
 
-        nread = read(l.ifd, &c, 1);
-        if (nread <= 0)
-            return l.len;
+        int rv = web_fd ? select(web_fd + 1, &set, NULL, NULL, NULL)
+                        : select(l.ifd + 1, &set, NULL, NULL, NULL);
 
-        /* Only autocomplete when the callback is set. It returns < 0 when
-         * there was an error reading from fd. Otherwise it will return the
-         * character that should be handled next.
-         */
-        if (c == 9 && completion_callback != NULL) {
-            c = complete_line(&l);
-            /* Return on errors */
-            if (c < 0)
-                return l.len;
-            /* Read next character when 0 */
-            if (c == 0)
-                continue;
-        }
+        switch (rv) {
+        case -1:
+            perror("select"); /* an error occurred */
+            continue;
+        case 0:
+            printf("timeout occurred\n"); /* a timeout occurred */
+            continue;
+        default:
+            if (web_fd && FD_ISSET(web_fd, &set)) {
+                struct sockaddr_in clientaddr;
+                socklen_t clientlen = sizeof clientaddr;
+                web_connfd =
+                    accept(web_fd, (struct sockaddr *) &clientaddr, &clientlen);
+                char *p = web_recv(web_connfd, &clientaddr);
+                strncpy(buf, p, strlen(p) + 1);
 
-        switch (c) {
-        case ENTER: /* enter */
-            history_len--;
-            free(history[history_len]);
-            if (mlmode)
-                line_edit_move_end(&l);
-            if (hints_callback) {
-                /* Force a refresh without hints to leave the previous
-                 * line as the user typed it after a newline.
+                char *buffer =
+                    "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\n";
+                web_send(web_connfd, buffer);
+
+                free(p);
+                return strlen(p) + 1;
+            } else if (FD_ISSET(l.ifd, &set)) {
+                signed char c;
+                int nread;
+                char seq[5];
+
+                nread = read(l.ifd, &c, 1);
+                if (nread <= 0)
+                    return l.len;
+
+                /* Only autocomplete when the callback is set. It returns < 0
+                 * when there was an error reading from fd. Otherwise it will
+                 * return the character that should be handled next.
                  */
-                line_hints_callback_t *hc = hints_callback;
-                hints_callback = NULL;
-                refresh_line(&l);
-                hints_callback = hc;
-            }
-            return (int) l.len;
-        case CTRL_C: /* ctrl-c */
-            errno = EAGAIN;
-            return -1;
-        case BACKSPACE: /* backspace */
-        case 8:         /* ctrl-h */
-            line_edit_backspace(&l);
-            break;
-        case CTRL_D: /* ctrl-d, remove char at right of cursor, or if the line
-                      * is empty, act as end-of-file.
-                      */
-            if (l.len > 0) {
-                line_edit_delete(&l);
-            } else {
-                history_len--;
-                free(history[history_len]);
-                return -1;
-            }
-            break;
-        case CTRL_T: /* ctrl-t, swaps current character with previous. */
-            if (l.pos > 0 && l.pos < l.len) {
-                int aux = buf[l.pos - 1];
-                buf[l.pos - 1] = buf[l.pos];
-                buf[l.pos] = aux;
-                if (l.pos != l.len - 1)
-                    l.pos++;
-                refresh_line(&l);
-            }
-            break;
-        case CTRL_B: /* ctrl-b */
-            line_edit_move_left(&l);
-            break;
-        case CTRL_F: /* ctrl-f */
-            line_edit_move_right(&l);
-            break;
-        case CTRL_P: /* ctrl-p */
-            line_edit_history_next(&l, LINENOISE_HISTORY_PREV);
-            break;
-        case CTRL_N: /* ctrl-n */
-            line_edit_history_next(&l, LINENOISE_HISTORY_NEXT);
-            break;
-        case ESC: /* escape sequence */
-            /* Read the next two bytes representing the escape sequence.
-             * Use two calls to handle slow terminals returning the two
-             * chars at different times.
-             */
-            if (read(l.ifd, seq, 1) == -1)
-                break;
-            if (read(l.ifd, seq + 1, 1) == -1)
-                break;
+                if (c == 9 && completion_callback != NULL) {
+                    c = complete_line(&l);
+                    /* Return on errors */
+                    if (c < 0)
+                        return l.len;
+                    /* Read next character when 0 */
+                    if (c == 0)
+                        continue;
+                }
 
-            /* ESC [ sequences. */
-            if (seq[0] == '[') {
-                if (seq[1] >= '0' && seq[1] <= '9') {
-                    /* Extended escape, read additional byte. */
-                    if (read(l.ifd, seq + 2, 1) == -1)
+                switch (c) {
+                case ENTER: /* enter */
+                    history_len--;
+                    free(history[history_len]);
+                    if (mlmode)
+                        line_edit_move_end(&l);
+                    if (hints_callback) {
+                        /* Force a refresh without hints to leave the previous
+                         * line as the user typed it after a newline.
+                         */
+                        line_hints_callback_t *hc = hints_callback;
+                        hints_callback = NULL;
+                        refresh_line(&l);
+                        hints_callback = hc;
+                    }
+                    return (int) l.len;
+                case CTRL_C: /* ctrl-c */
+                    errno = EAGAIN;
+                    return -1;
+                case BACKSPACE: /* backspace */
+                case 8:         /* ctrl-h */
+                    line_edit_backspace(&l);
+                    break;
+                case CTRL_D: /* ctrl-d, remove char at right of cursor, or if
+                              * the line is empty, act as end-of-file.
+                              */
+                    if (l.len > 0) {
+                        line_edit_delete(&l);
+                    } else {
+                        history_len--;
+                        free(history[history_len]);
+                        return -1;
+                    }
+                    break;
+                case CTRL_T: /* ctrl-t, swaps current character with previous.
+                              */
+                    if (l.pos > 0 && l.pos < l.len) {
+                        int aux = buf[l.pos - 1];
+                        buf[l.pos - 1] = buf[l.pos];
+                        buf[l.pos] = aux;
+                        if (l.pos != l.len - 1)
+                            l.pos++;
+                        refresh_line(&l);
+                    }
+                    break;
+                case CTRL_B: /* ctrl-b */
+                    line_edit_move_left(&l);
+                    break;
+                case CTRL_F: /* ctrl-f */
+                    line_edit_move_right(&l);
+                    break;
+                case CTRL_P: /* ctrl-p */
+                    line_edit_history_next(&l, LINENOISE_HISTORY_PREV);
+                    break;
+                case CTRL_N: /* ctrl-n */
+                    line_edit_history_next(&l, LINENOISE_HISTORY_NEXT);
+                    break;
+                case ESC: /* escape sequence */
+                    /* Read the next two bytes representing the escape sequence.
+                     * Use two calls to handle slow terminals returning the two
+                     * chars at different times.
+                     */
+                    if (read(l.ifd, seq, 1) == -1)
                         break;
-                    switch (seq[2]) {
-                    case '~':
-                        switch (seq[1]) {
-                        case '3': /* Delete key. */
-                            line_edit_delete(&l);
-                            break;
-                        }
+                    if (read(l.ifd, seq + 1, 1) == -1)
                         break;
 
-                    case ';':
-                        /* Even more extended escape, read additional 2 bytes */
-                        if (read(l.ifd, seq + 3, 1) == -1)
-                            break;
-                        if (read(l.ifd, seq + 4, 1) == -1)
-                            break;
-                        if (seq[3] == '5') {
-                            switch (seq[4]) {
-                            case 'D': /* Ctrl Left */
-                                line_edit_prev_word(&l);
+                    /* ESC [ sequences. */
+                    if (seq[0] == '[') {
+                        if (seq[1] >= '0' && seq[1] <= '9') {
+                            /* Extended escape, read additional byte. */
+                            if (read(l.ifd, seq + 2, 1) == -1)
                                 break;
-                            case 'C': /* Ctrl Right */
-                                line_edit_next_word(&l);
+                            switch (seq[2]) {
+                            case '~':
+                                switch (seq[1]) {
+                                case '3': /* Delete key. */
+                                    line_edit_delete(&l);
+                                    break;
+                                }
+                                break;
+
+                            case ';':
+                                /* Even more extended escape, read additional 2
+                                 * bytes */
+                                if (read(l.ifd, seq + 3, 1) == -1)
+                                    break;
+                                if (read(l.ifd, seq + 4, 1) == -1)
+                                    break;
+                                if (seq[3] == '5') {
+                                    switch (seq[4]) {
+                                    case 'D': /* Ctrl Left */
+                                        line_edit_prev_word(&l);
+                                        break;
+                                    case 'C': /* Ctrl Right */
+                                        line_edit_next_word(&l);
+                                        break;
+                                    }
+                                }
+                                break;
+                            }
+                        } else {
+                            switch (seq[1]) {
+                            case 'A': /* Up */
+                                line_edit_history_next(&l,
+                                                       LINENOISE_HISTORY_PREV);
+                                break;
+                            case 'B': /* Down */
+                                line_edit_history_next(&l,
+                                                       LINENOISE_HISTORY_NEXT);
+                                break;
+                            case 'C': /* Right */
+                                line_edit_move_right(&l);
+                                break;
+                            case 'D': /* Left */
+                                line_edit_move_left(&l);
+                                break;
+                            case 'H': /* Home */
+                                line_edit_move_home(&l);
+                                break;
+                            case 'F': /* End*/
+                                line_edit_move_end(&l);
                                 break;
                             }
                         }
-                        break;
                     }
-                } else {
-                    switch (seq[1]) {
-                    case 'A': /* Up */
-                        line_edit_history_next(&l, LINENOISE_HISTORY_PREV);
-                        break;
-                    case 'B': /* Down */
-                        line_edit_history_next(&l, LINENOISE_HISTORY_NEXT);
-                        break;
-                    case 'C': /* Right */
-                        line_edit_move_right(&l);
-                        break;
-                    case 'D': /* Left */
-                        line_edit_move_left(&l);
-                        break;
-                    case 'H': /* Home */
-                        line_edit_move_home(&l);
-                        break;
-                    case 'F': /* End*/
-                        line_edit_move_end(&l);
-                        break;
-                    }
-                }
-            }
 
-            /* ESC O sequences. */
-            else if (seq[0] == 'O') {
-                switch (seq[1]) {
-                case 'H': /* Home */
+                    /* ESC O sequences. */
+                    else if (seq[0] == 'O') {
+                        switch (seq[1]) {
+                        case 'H': /* Home */
+                            line_edit_move_home(&l);
+                            break;
+                        case 'F': /* End*/
+                            line_edit_move_end(&l);
+                            break;
+                        }
+                    }
+                    break;
+                default:
+                    if (line_edit_insert(&l, c))
+                        return -1;
+                    break;
+                case CTRL_U: /* Ctrl+u, delete the whole line. */
+                    buf[0] = '\0';
+                    l.pos = l.len = 0;
+                    refresh_line(&l);
+                    break;
+                case CTRL_K: /* Ctrl+k, delete from current to end of line. */
+                    buf[l.pos] = '\0';
+                    l.len = l.pos;
+                    refresh_line(&l);
+                    break;
+                case CTRL_A: /* Ctrl+a, go to the start of the line */
                     line_edit_move_home(&l);
                     break;
-                case 'F': /* End*/
+                case CTRL_E: /* ctrl+e, go to the end of the line */
                     line_edit_move_end(&l);
+                    break;
+                case CTRL_L: /* ctrl+l, clear screen */
+                    line_clear_screen();
+                    refresh_line(&l);
+                    break;
+                case CTRL_W: /* ctrl+w, delete previous word */
+                    line_edit_delete_prev_word(&l);
                     break;
                 }
             }
-            break;
-        default:
-            if (line_edit_insert(&l, c))
-                return -1;
-            break;
-        case CTRL_U: /* Ctrl+u, delete the whole line. */
-            buf[0] = '\0';
-            l.pos = l.len = 0;
-            refresh_line(&l);
-            break;
-        case CTRL_K: /* Ctrl+k, delete from current to end of line. */
-            buf[l.pos] = '\0';
-            l.len = l.pos;
-            refresh_line(&l);
-            break;
-        case CTRL_A: /* Ctrl+a, go to the start of the line */
-            line_edit_move_home(&l);
-            break;
-        case CTRL_E: /* ctrl+e, go to the end of the line */
-            line_edit_move_end(&l);
-            break;
-        case CTRL_L: /* ctrl+l, clear screen */
-            line_clear_screen();
-            refresh_line(&l);
-            break;
-        case CTRL_W: /* ctrl+w, delete previous word */
-            line_edit_delete_prev_word(&l);
-            break;
         }
     }
     return l.len;
