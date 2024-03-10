@@ -44,6 +44,7 @@ extern int show_entropy;
  */
 #include "list_sort.h"
 #include "queue.h"
+#include "quick_sort.h"
 
 #include "console.h"
 #include "report.h"
@@ -616,12 +617,14 @@ bool _do_sort(int argc, char *argv[], int mode)
         report(3, "Warning: Calling sort on single node");
     error_check();
 
-    set_noallocate_mode(true);
+    set_noallocate_mode(false);
     if (current && exception_setup(true)) {
         if (mode == 0)
             q_sort(current->q, descend);
         else if (mode == 1)
             list_sort(NULL, current->q, descend ? cmp_descend : cmp);
+        else if (mode == 2)
+            quick_sort(current->q, descend);
     }
 
     exception_cancel();
@@ -661,6 +664,11 @@ bool do_sort(int argc, char *argv[])
 bool do_linux_sort(int argc, char *argv[])
 {
     return _do_sort(argc, argv, 1);
+}
+
+bool do_quick_sort(int argc, char *argv[])
+{
+    return _do_sort(argc, argv, 2);
 }
 
 static bool do_dm(int argc, char *argv[])
@@ -1077,6 +1085,7 @@ static void console_init()
     ADD_COMMAND(reverse, "Reverse queue", "");
     ADD_COMMAND(sort, "Sort queue in ascending/descening order", "");
     ADD_COMMAND(linux_sort, "Sort queue with linux lib/list_sort.c", "");
+    ADD_COMMAND(quick_sort, "Sort queue with Non recursive quick sort", "");
     ADD_COMMAND(size, "Compute queue size n times (default: n == 1)", "[n]");
     ADD_COMMAND(show, "Show queue contents", "");
     ADD_COMMAND(dm, "Delete middle node in queue", "");

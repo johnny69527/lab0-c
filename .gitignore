@@ -1,3 +1,4 @@
+*.dat
 sort_perf.png
 qtest
 *.o

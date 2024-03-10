@@ -40,7 +40,7 @@ $(GIT_HOOKS):
 OBJS := qtest.o report.o console.o harness.o queue.o \
         random.o dudect/constant.o dudect/fixture.o dudect/ttest.o \
         shannon_entropy.o \
-        linenoise.o web.o list_sort.o
+        linenoise.o web.o list_sort.o quick_sort.o
 
 deps := $(OBJS:%.o=.%.o.d)
 
@@ -83,19 +83,30 @@ clean:
 distclean: clean
 	rm -f .cmd_history
 
-sort_perf: 
+linux_sort.dat: list_sort.o
 	./qtest -v 2 -f traces/trace-perf-linux-sort.cmd -l linux_sort.dat
 	cat linux_sort.dat | grep -v 'Delta time =' | sed 's/# //g' > linux_sort.dat01
 	cat linux_sort.dat | grep 'Delta time =' | sed 's/Delta time = //g' > linux_sort.dat02
 	pr -m -T linux_sort.dat01 linux_sort.dat02 > linux_sort.dat
 	rm linux_sort.dat01 linux_sort.dat02
+
+merge_sort.dat: queue.o
 	./qtest -v 2 -f traces/trace-perf-merge-sort.cmd -l merge_sort.dat
 	cat merge_sort.dat | grep -v 'Delta time =' | sed 's/# //g' > merge_sort.dat01
 	cat merge_sort.dat | grep 'Delta time =' | sed 's/Delta time = //g' > merge_sort.dat02
 	pr -m -T merge_sort.dat01 merge_sort.dat02 > merge_sort.dat
 	rm merge_sort.dat01 merge_sort.dat02
+
+quick_sort.dat: quick_sort.o
+	./qtest -v 2 -f traces/trace-perf-quick-sort.cmd -l quick_sort.dat
+	cat quick_sort.dat | grep -v 'Delta time =' | sed 's/# //g' > quick_sort.dat01
+	cat quick_sort.dat | grep 'Delta time =' | sed 's/Delta time = //g' > quick_sort.dat02
+	pr -m -T quick_sort.dat01 quick_sort.dat02 > quick_sort.dat
+	rm quick_sort.dat01 quick_sort.dat02
+
+sort_perf: linux_sort.dat merge_sort.dat quick_sort.dat
 	gnuplot scripts/sort_perf.gp
-	rm linux_sort.dat merge_sort.dat
+	# rm linux_sort.dat merge_sort.dat quick_sort.dat
 	xdg-open sort_perf.png
 
 -include $(deps)
