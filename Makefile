@@ -40,7 +40,7 @@ $(GIT_HOOKS):
 OBJS := qtest.o report.o console.o harness.o queue.o \
         random.o dudect/constant.o dudect/fixture.o dudect/ttest.o \
         shannon_entropy.o \
-        linenoise.o web.o list_sort.o quick_sort.o
+        linenoise.o web.o list_sort.o quick_sort.o timsort.o
 
 deps := $(OBJS:%.o=.%.o.d)
 
@@ -104,7 +104,14 @@ quick_sort.dat: quick_sort.o
 	pr -m -T quick_sort.dat01 quick_sort.dat02 > quick_sort.dat
 	rm quick_sort.dat01 quick_sort.dat02
 
-sort_perf: linux_sort.dat merge_sort.dat quick_sort.dat
+tim_sort.dat: timsort.o
+	./qtest -v 2 -f traces/trace-perf-tim-sort.cmd -l tim_sort.dat
+	cat tim_sort.dat | grep -v 'Delta time =' | sed 's/# //g' > tim_sort.dat01
+	cat tim_sort.dat | grep 'Delta time =' | sed 's/Delta time = //g' > tim_sort.dat02
+	pr -m -T tim_sort.dat01 tim_sort.dat02 > tim_sort.dat
+	rm tim_sort.dat01 tim_sort.dat02
+	
+sort_perf: linux_sort.dat merge_sort.dat quick_sort.dat tim_sort.dat
 	gnuplot scripts/sort_perf.gp
 	# rm linux_sort.dat merge_sort.dat quick_sort.dat
 	xdg-open sort_perf.png
