@@ -116,4 +116,37 @@ sort_perf: linux_sort.dat merge_sort.dat quick_sort.dat tim_sort.dat
 	# rm linux_sort.dat merge_sort.dat quick_sort.dat
 	xdg-open sort_perf.png
 
+linux_sort_qwc.dat: list_sort.o
+	./qtest -v 2 -f traces/trace-perf-linux-sort-qwc.cmd -l linux_sort_qwc.dat
+	cat linux_sort_qwc.dat | grep -v 'Delta time =' | sed 's/# //g' > linux_sort_qwc.dat01
+	cat linux_sort_qwc.dat | grep 'Delta time =' | sed 's/Delta time = //g' > linux_sort_qwc.dat02
+	pr -m -T linux_sort_qwc.dat01 linux_sort_qwc.dat02 > linux_sort_qwc.dat
+	rm linux_sort_qwc.dat01 linux_sort_qwc.dat02
+
+merge_sort_qwc.dat: queue.o
+	./qtest -v 2 -f traces/trace-perf-merge-sort-qwc.cmd -l merge_sort_qwc.dat
+	cat merge_sort_qwc.dat | grep -v 'Delta time =' | sed 's/# //g' > merge_sort_qwc.dat01
+	cat merge_sort_qwc.dat | grep 'Delta time =' | sed 's/Delta time = //g' > merge_sort_qwc.dat02
+	pr -m -T merge_sort_qwc.dat01 merge_sort_qwc.dat02 > merge_sort_qwc.dat
+	rm merge_sort_qwc.dat01 merge_sort_qwc.dat02
+
+quick_sort_qwc.dat: quick_sort.o
+	./qtest -v 2 -f traces/trace-perf-quick-sort-qwc.cmd -l quick_sort_qwc.dat
+	cat quick_sort_qwc.dat | grep -v 'Delta time =' | sed 's/# //g' > quick_sort_qwc.dat01
+	cat quick_sort_qwc.dat | grep 'Delta time =' | sed 's/Delta time = //g' > quick_sort_qwc.dat02
+	pr -m -T quick_sort_qwc.dat01 quick_sort_qwc.dat02 > quick_sort_qwc.dat
+	rm quick_sort_qwc.dat01 quick_sort_qwc.dat02
+
+tim_sort_qwc.dat: timsort.o
+	./qtest -v 2 -f traces/trace-perf-tim-sort-qwc.cmd -l tim_sort_qwc.dat
+	cat tim_sort_qwc.dat | grep -v 'Delta time =' | sed 's/# //g' > tim_sort_qwc.dat01
+	cat tim_sort_qwc.dat | grep 'Delta time =' | sed 's/Delta time = //g' > tim_sort_qwc.dat02
+	pr -m -T tim_sort_qwc.dat01 tim_sort_qwc.dat02 > tim_sort_qwc.dat
+	rm tim_sort_qwc.dat01 tim_sort_qwc.dat02
+	
+sort_perf_qwc: linux_sort_qwc.dat merge_sort_qwc.dat quick_sort_qwc.dat tim_sort_qwc.dat
+	gnuplot scripts/sort_perf_qwc.gp
+	# rm linux_sort.dat merge_sort.dat quick_sort.dat
+	xdg-open sort_perf_qwc.png
+
 -include $(deps)
